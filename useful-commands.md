@@ -10,6 +10,13 @@ Como instalar:
 
 Nenhum comando abaixo contém senhas, tokens ou caminhos específicos de uma máquina.
 
+## Helpers de desenvolvimento
+
+As funções reutilizáveis de Git, asdf, CocoaPods e inspeção de repositórios
+estão em [`shell/development.sh`](shell/development.sh). Veja
+[`shell/README.md`](shell/README.md) para instalação em zsh e Fish, exemplos,
+dependências e cuidados com operações destrutivas.
+
 ## `revive-opencode`
 
 Reinicia o serviço em background do opencode quando ele fica meio-subido: escuta na porta, mas responde 500/503, e a CLI mostra `Background service failed to start`. Uma causa comum é `SQLiteError: database is locked` no boot, quando o disco está saturado. O comando lê o pid em `$XDG_STATE_HOME/opencode/service.json` (padrão `~/.local/state/opencode`), confere que o processo é mesmo do opencode, encerra (SIGTERM e, se preciso, SIGKILL) e espera um novo serviço subir. As sessões ficam no banco local e voltam com `opencode -s <id>`. Terminais persistentes do serviço antigo são perdidos. Não imprime a senha que está no `service.json`.
