@@ -228,6 +228,51 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), source_commit)
         self.assertEqual(len(self.git("worktree", "list", "--porcelain").stdout.split("worktree ")) - 1, 1)
 
+    def test_should_rebase_stale_target_before_integrating(self):
+        remote_directory = self.add_remote()
+        self.git("branch", "dev-test")
+        self.git("switch", "-c", "remote-only")
+        (self.repository / "remote-only.txt").write_text("remote\n")
+        self.git("add", "remote-only.txt")
+        self.git("commit", "-m", "Remote only")
+        self.git("push", "origin", "HEAD:dev-test")
+        self.git("switch", "-c", "feature")
+        (self.repository / "feature.txt").write_text("feature\n")
+        self.git("add", "feature.txt")
+        self.git("commit", "-m", "Feature")
+        source_commit = self.git("rev-parse", "HEAD").stdout.strip()
+        self.helper("integrate-to-branch dev-test origin")
+        self.assertEqual(self.git("branch", "--show-current").stdout.strip(), "feature")
+        result = self.run_command(["git", "--git-dir", str(remote_directory), "rev-parse", "dev-test"])
+        self.assertEqual(result.stdout.strip(), source_commit)
+        self.assertEqual(self.git("rev-parse", "dev-test").stdout.strip(), source_commit)
+
+    def test_should_rebase_diverged_target_and_keep_both_changes(self):
+        remote_directory = self.add_remote()
+        self.git("switch", "-c", "dev-test")
+        (self.repository / "local-only.txt").write_text("local\n")
+        self.git("add", "local-only.txt")
+        self.git("commit", "-m", "Local only")
+        self.git("switch", "main")
+        (self.repository / "remote-only.txt").write_text("remote\n")
+        self.git("add", "remote-only.txt")
+        self.git("commit", "-m", "Remote only")
+        self.git("push", "origin", "HEAD:dev-test")
+        self.git("switch", "-c", "feature")
+        (self.repository / "feature.txt").write_text("feature\n")
+        self.git("add", "feature.txt")
+        self.git("commit", "-m", "Feature")
+        source_commit = self.git("rev-parse", "HEAD").stdout.strip()
+        self.helper("integrate-to-branch dev-test origin")
+        self.assertEqual(self.git("branch", "--show-current").stdout.strip(), "feature")
+        remote_commit = self.run_command(
+            ["git", "--git-dir", str(remote_directory), "rev-parse", "dev-test"]
+        ).stdout.strip()
+        self.assertEqual(self.git("merge-base", "--is-ancestor", source_commit, remote_commit).returncode, 0)
+        self.assertEqual(self.git("show", f"{remote_commit}:local-only.txt").stdout, "local\n")
+        self.assertEqual(self.git("show", f"{remote_commit}:remote-only.txt").stdout, "remote\n")
+        self.assertEqual(self.git("show", f"{remote_commit}:feature.txt").stdout, "feature\n")
+
     def test_should_preserve_lockfile_and_directory_when_pods_fail(self):
         ios_directory = self.repository / "ios"
         ios_directory.mkdir()

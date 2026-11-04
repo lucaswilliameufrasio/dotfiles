@@ -258,9 +258,11 @@ integrate-to-branch() {
   worktree_directory="$HOME/git-worktrees/$repository_name/integration-$(date +%s)-$$"
   git worktree add "$worktree_directory" "$target_branch" || return 1
   if git show-ref --verify --quiet "refs/remotes/$remote_name/$target_branch"; then
-    if ! git -C "$worktree_directory" merge --ff-only "$remote_name/$target_branch"; then
-      printf 'Target diverged; worktree preserved at %s\n' "$worktree_directory" >&2
-      return 1
+    if [ "$(git rev-parse "$target_branch")" != "$(git rev-parse "$remote_name/$target_branch")" ]; then
+      if ! git -C "$worktree_directory" pull --rebase "$remote_name" "$target_branch"; then
+        printf 'Rebase of %s failed; worktree preserved at %s\n' "$target_branch" "$worktree_directory" >&2
+        return 1
+      fi
     fi
   fi
   if ! git -C "$worktree_directory" merge --no-edit "$source_commit"; then

@@ -14,8 +14,9 @@ Nenhum comando abaixo contém senhas, tokens ou caminhos específicos de uma má
 
 As funções reutilizáveis de Git, asdf, CocoaPods e inspeção de repositórios
 estão em [`shell/development.sh`](shell/development.sh). Veja
-[`shell/README.md`](shell/README.md) para instalação em zsh e Fish, exemplos,
-dependências e cuidados com operações destrutivas.
+[`shell/README.md`](shell/README.md) para instalação em bash, zsh e Fish,
+exemplos da integração com `git pull --rebase` nas três shells, dependências
+e cuidados com operações destrutivas.
 
 ## `revive-opencode`
 

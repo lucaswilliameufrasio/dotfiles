@@ -63,7 +63,7 @@ remote quando necessário. O módulo não renomeia remotes automaticamente.
 | `rename-origin-to-o` | — | Renomeia o remote `origin` para `o`. |
 | `commit-with-friendly-message` | `<mensagem>` | Cria commit apenas com arquivos já selecionados no staging. |
 | `commit-with-random-message` | — | Busca uma mensagem pública via curl e cria commit do staging; evite em projetos profissionais. |
-| `integrate-to-branch` | `[branch=dev-test] [remote]` | Integra e publica por worktree persistente sem trocar a branch da sessão original. |
+| `integrate-to-branch` | `[branch=dev-test] [remote]` | Integra e publica por worktree persistente sem trocar a branch da sessão. Se o destino local não for a ponta remota, roda `git pull --rebase` nele antes do merge. |
 | `check-repositories-with-pending-changes` | `[diretório=.]` | Lista alterações sem commit e commits à frente do upstream, incluindo worktrees e submódulos. |
 
 Exemplos:
@@ -73,6 +73,23 @@ pull-branch develop origin
 set-upstream-to-current-branch origin
 create-release-from-tag-and-push origin v1.2.3
 check-repositories-with-pending-changes ~/projects
+```
+
+`integrate-to-branch` usa os mesmos argumentos nas três shells. Fish só
+encaminha a chamada para `development.sh`. Se a `dev-test` local não for a
+ponta de `o/dev-test`, a função roda `git pull --rebase o dev-test` no
+worktree antes do merge.
+
+```bash
+integrate-to-branch dev-test o
+```
+
+```zsh
+integrate-to-branch dev-test o
+```
+
+```fish
+integrate-to-branch dev-test o
 ```
 
 ### Segurança e diferenças em relação a helpers sem validação
@@ -90,9 +107,11 @@ check-repositories-with-pending-changes ~/projects
 - Limpeza e remoção comum não usam `-D`: Git recusa remover branches não
   integradas conforme suas verificações habituais.
 - Os helpers de commit **não** fazem `git add .`. Selecione os arquivos antes.
-- Integração usa `~/git-worktrees/`, atualiza o destino com fast-forward e não
-  oferece sobrescrita forçada. Em conflito ou falha de push, preserva o
-  worktree e informa seu caminho. Resolva e remova-o manualmente depois.
+- Integração usa `~/git-worktrees/`. Se o destino local não for a ponta
+  remota, roda `git pull --rebase <remote> <branch>` nesse destino antes do
+  merge. Não oferece sobrescrita forçada. Em conflito de rebase ou merge, ou
+  falha de push, preserva o worktree e informa seu caminho. Resolva e remova-o
+  manualmente depois.
 - Verificação de pendências não executa fetch: a comparação usa o upstream
   disponível localmente. Branch sem upstream não tem seus commits contados
   como pendentes de push.
