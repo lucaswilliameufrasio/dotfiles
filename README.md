@@ -20,7 +20,7 @@ arquivos de configuração existentes.
 
 - `terminal-setup.md` — terminal, Fish, Yazi e paleta Everforest.
 - `helix-setup.md` — tema e configuração do editor Helix.
-- `useful-commands.md` — funções úteis de terminal e helpers portáveis de desenvolvimento para Fish, bash e zsh.
+- `useful-commands.md` — funções úteis de terminal, inclusive `revive-plasma` para a tela de login do Plasma, e helpers portáveis de desenvolvimento para Fish, bash e zsh.
 - `bluetooth-speaker.md` — caixa Bluetooth que reconecta sozinha (PBS45BT, BlueZ 5.87) e os scripts em `scripts/bluetooth/`.
 - `setup.sh` — instalação inicial de ferramentas em macOS e Linux.
 

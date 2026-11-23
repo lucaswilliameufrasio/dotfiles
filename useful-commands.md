@@ -239,3 +239,213 @@ debug = "line-tables-only"
 ```
 
 E rode testes com menos paralelismo e prioridade baixa de CPU e disco: `nice -n19 ionice -c3 cargo test -j4`.
+
+## `revive-plasma`
+
+Devolve a tela de login do Plasma quando o monitor fica sem sessão gráfica, o SSH responde e o `plasmalogin` continua ativo sem compositor. Foi o caso em que o login Wayland abortou porque `graphical-session.target` já estava parando, o greeter saiu com código 64 e um `ksecretd --pam-login` segurou o assento em `closing`.
+
+A função só age com a sessão Plasma deste usuário fora do ar. Se `plasmashell` ou `kwin_wayland` deste usuário existir, ela para. Se a sessão `greeter` já existir, ela também para: a tela de login já está no monitor. No caminho que reinicia, ela encerra somente `ksecretd --pam-login` de uma sessão `closing` neste assento, limpa o start-limit dos portais do Plasma e pede `yes` antes de `sudo systemctl restart plasmalogin`. A senha é a do sudo, digitada no prompt. Ela não entra no comando.
+
+_Linux com `plasmalogin`. Não usa caminho desta máquina._
+
+### fish
+
+```fish
+function revive-plasma --description "Restore the Plasma login screen when plasmalogin gave up"
+    if not systemctl list-unit-files --no-legend plasmalogin.service 2>/dev/null | string match -q 'plasmalogin.service*'
+        echo "Esta máquina não usa plasmalogin."
+        return 1
+    end
+
+    if ps -u $USER -o comm= | string match -q -r '^(plasmashell|kwin_wayland)'
+        echo "Sessão Plasma deste usuário está no ar. Nada a fazer."
+        return 0
+    end
+
+    set -l released 0
+    for id in (loginctl list-sessions --no-legend | awk -v me="$USER" '$3 == me && $4 ~ /^seat/ { print $1 }')
+        set -l state (loginctl show-session $id -p State --value 2>/dev/null)
+        test "$state" = closing; or continue
+        set -l scope (loginctl show-session $id -p Scope --value 2>/dev/null)
+        set -l cgroup (systemctl show -p ControlGroup --value $scope 2>/dev/null)
+        set -l procs /sys/fs/cgroup$cgroup/cgroup.procs
+        if not test -r $procs
+            echo "Não consegui ler os processos da sessão $id."
+            echo "Sessão $id segue em closing. Não reiniciei o plasmalogin."
+            return 1
+        end
+        for pid in (cat $procs)
+            set -l cmd (ps -p $pid -o args=)
+            if string match -q -- '*ksecretd*' $cmd; and string match -q -- '*--pam-login*' $cmd
+                echo "Encerrando ksecretd --pam-login da sessão $id (pid $pid)."
+                kill $pid
+                set released 1
+            end
+        end
+    end
+    if test "$released" = 1
+        sleep 1
+    end
+
+    systemctl --user reset-failed \
+        plasma-xdg-desktop-portal-kde.service \
+        plasma-ksplash.service \
+        xdg-desktop-portal-gtk.service \
+        2>/dev/null
+
+    for id in (loginctl list-sessions --no-legend | awk -v me="$USER" '$3 == me && $4 ~ /^seat/ { print $1 }')
+        set -l state (loginctl show-session $id -p State --value 2>/dev/null)
+        test "$state" = closing; or continue
+        echo "Sessão $id segue em closing. Não reiniciei o plasmalogin."
+        set -l scope (loginctl show-session $id -p Scope --value 2>/dev/null)
+        set -l cgroup (systemctl show -p ControlGroup --value $scope 2>/dev/null)
+        set -l procs /sys/fs/cgroup$cgroup/cgroup.procs
+        if test -r $procs
+            for pid in (cat $procs)
+                echo "  pid $pid "(cat /proc/$pid/comm 2>/dev/null)
+            end
+        end
+        return 1
+    end
+
+    if loginctl list-sessions --no-legend | awk '$6 == "greeter" { found = 1 } END { exit !found }'
+        echo "Tela de login já está no ar. Nada a fazer."
+        return 0
+    end
+
+    echo "resumo: sessao-usuario=fora greeter=ausente acao=restart-plasmalogin"
+    if not isatty stdin
+        echo "Terminal não interativo. Rode revive-plasma de novo num terminal e digite yes."
+        return 1
+    end
+    read -l -P "Reiniciar plasmalogin agora? Digite yes: " answer
+    if test "$answer" != yes
+        echo "Parado. plasmalogin não foi reiniciado."
+        return 1
+    end
+
+    sudo systemctl restart plasmalogin
+    or return 1
+
+    for i in (seq 20)
+        if loginctl list-sessions --no-legend | awk '$6 == "greeter" { found = 1 } END { exit !found }'
+            echo "Tela de login no ar. Olhe o monitor."
+            return 0
+        end
+        sleep 0.5
+    end
+    echo "plasmalogin reiniciou, mas a sessão greeter não apareceu."
+    echo "Veja: journalctl -b -u plasmalogin -n 40 --no-pager"
+    return 1
+end
+```
+
+### bash e zsh
+
+```bash
+revive-plasma() {
+  systemctl list-unit-files --no-legend plasmalogin.service 2>/dev/null | grep -q '^plasmalogin.service' \
+    || { echo "Esta máquina não usa plasmalogin."; return 1; }
+
+  if ps -u "$USER" -o comm= | grep -Eq '^(plasmashell|kwin_wayland)'; then
+    echo "Sessão Plasma deste usuário está no ar. Nada a fazer."
+    return 0
+  fi
+
+  local id state scope cgroup procs pid cmd released=0
+  while read -r id; do
+    [ -n "$id" ] || continue
+    state=$(loginctl show-session "$id" -p State --value 2>/dev/null)
+    [ "$state" = closing ] || continue
+    scope=$(loginctl show-session "$id" -p Scope --value 2>/dev/null)
+    cgroup=$(systemctl show -p ControlGroup --value "$scope" 2>/dev/null)
+    procs="/sys/fs/cgroup${cgroup}/cgroup.procs"
+    if [ ! -r "$procs" ]; then
+      echo "Não consegui ler os processos da sessão $id."
+      echo "Sessão $id segue em closing. Não reiniciei o plasmalogin."
+      return 1
+    fi
+    while read -r pid; do
+      [ -n "$pid" ] || continue
+      cmd=$(ps -p "$pid" -o args=)
+      case "$cmd" in
+        *ksecretd*--pam-login*)
+          echo "Encerrando ksecretd --pam-login da sessão $id (pid $pid)."
+          kill "$pid"
+          released=1
+          ;;
+      esac
+    done < "$procs"
+  done <<EOF
+$(loginctl list-sessions --no-legend | awk -v me="$USER" '$3 == me && $4 ~ /^seat/ { print $1 }')
+EOF
+  [ "$released" = 1 ] && sleep 1
+
+  systemctl --user reset-failed \
+    plasma-xdg-desktop-portal-kde.service \
+    plasma-ksplash.service \
+    xdg-desktop-portal-gtk.service \
+    2>/dev/null || true
+
+  while read -r id; do
+    [ -n "$id" ] || continue
+    state=$(loginctl show-session "$id" -p State --value 2>/dev/null)
+    [ "$state" = closing ] || continue
+    echo "Sessão $id segue em closing. Não reiniciei o plasmalogin."
+    scope=$(loginctl show-session "$id" -p Scope --value 2>/dev/null)
+    cgroup=$(systemctl show -p ControlGroup --value "$scope" 2>/dev/null)
+    procs="/sys/fs/cgroup${cgroup}/cgroup.procs"
+    if [ -r "$procs" ]; then
+      while read -r pid; do
+        [ -n "$pid" ] || continue
+        echo "  pid $pid $(cat "/proc/$pid/comm" 2>/dev/null)"
+      done < "$procs"
+    fi
+    return 1
+  done <<EOF
+$(loginctl list-sessions --no-legend | awk -v me="$USER" '$3 == me && $4 ~ /^seat/ { print $1 }')
+EOF
+
+  if loginctl list-sessions --no-legend | awk '$6 == "greeter" { found = 1 } END { exit !found }'; then
+    echo "Tela de login já está no ar. Nada a fazer."
+    return 0
+  fi
+
+  echo "resumo: sessao-usuario=fora greeter=ausente acao=restart-plasmalogin"
+  if [ ! -t 0 ]; then
+    echo "Terminal não interativo. Rode revive-plasma de novo num terminal e digite yes."
+    return 1
+  fi
+  local answer
+  printf 'Reiniciar plasmalogin agora? Digite yes: '
+  read -r answer
+  if [ "$answer" != yes ]; then
+    echo "Parado. plasmalogin não foi reiniciado."
+    return 1
+  fi
+
+  sudo systemctl restart plasmalogin || return 1
+
+  local _
+  for _ in $(seq 20); do
+    if loginctl list-sessions --no-legend | awk '$6 == "greeter" { found = 1 } END { exit !found }'; then
+      echo "Tela de login no ar. Olhe o monitor."
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "plasmalogin reiniciou, mas a sessão greeter não apareceu."
+  echo "Veja: journalctl -b -u plasmalogin -n 40 --no-pager"
+  return 1
+}
+```
+
+No SSH, com o monitor sem sessão:
+
+```sh
+revive-plasma
+```
+
+A linha antes da pergunta tem de ser exatamente `resumo: sessao-usuario=fora greeter=ausente acao=restart-plasmalogin`. Digite `yes` e, no prompt do sudo, a senha. Outra linha de resumo: digite qualquer coisa diferente de `yes` e pare.
+
+Terminou quando aparecer `Tela de login no ar. Olhe o monitor.` A sessão `greeter` está no tty da tela. `Tela de login já está no ar. Nada a fazer.` também é fim: o greeter já existia e o comando não reiniciou nada.
